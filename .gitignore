@@ -1,0 +1,4 @@
+.pio
+
+src/config.h
+*.sw[op]
