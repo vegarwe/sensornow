@@ -96,10 +96,8 @@ void connectToAWS()
     // Allow some resources for the WiFi connection
     yield();
 
-    mqtt.subscribe("/raiomremote/cmd/#");
-    mqtt.subscribe("/raiomremote/api/#");
-    mqtt.subscribe("sensor/values");
-    mqtt.subscribe("AMSpub");
+    // TODO: Subscribe to services?
+    //mqtt.subscribe("fiskensubject");
 }
 
 
