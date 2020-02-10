@@ -82,6 +82,16 @@ void setup() {
         debugger->println("Starting");
     }
 
+    uint16_t analog_value = analogRead(35);
+
+    if (debugger)
+    {
+        debugger->print("battery measurement: ");
+        debugger->println(analog_value);
+        // (2112 * 2 * 3.3 / 4095) + 0.366 ~= 3.77
+        // (2444 * 2 * 3.3 / 4095) + 0.366 ~= 4.2 -- 4.3
+    }
+
     pinMode(14, OUTPUT);
     digitalWrite(14, HIGH);
 
@@ -118,14 +128,15 @@ void setup() {
 
     wifi_mqtt_loop();
     static char payload[512];
-    sprintf(payload,"{ \"temperature\": %d, \"soil_capacitance\": %d }",
+    sprintf(payload,"{ \"temperature\": %d, \"soil_capacitance\": %d , \"battery_voltage\": %u}",
             temperature,
-            soil_capacitance);
+            soil_capacitance,
+            analog_value);
     wifi_mqtt_publish("chirp/sensor", payload);
     wifi_mqtt_loop();
 
-    esp_sleep_enable_timer_wakeup(15 * 60 * 1000 * 1000);
-    //esp_sleep_enable_timer_wakeup(     20 * 1000 * 1000);
+    esp_sleep_enable_timer_wakeup(20 * 60 * 1000 * 1000);
+    //esp_sleep_enable_timer_wakeup(     10 * 1000 * 1000);
     if (debugger) debugger->println("sleeping");
     if (debugger) debugger->flush();
     esp_deep_sleep_start();
@@ -134,6 +145,19 @@ void setup() {
 //--------------------------------------------------------------------------------
 void loop()
 {
+    //uint16_t analog_value = analogRead(35);
+
+    //if (debugger)
+    //{
+    //    debugger->print("battery measurement: ");
+    //    debugger->println(analog_value);
+    //}
+
+    //static char payload[512];
+    //sprintf(payload,"{ \"battery_voltage\": %u}", analog_value);
+    //wifi_mqtt_publish("chirp/sensor", payload);
+    //wifi_mqtt_loop();
+    //delay(3000);                   //this can take a while
 }
 
 //void writeI2CRegister8bit(int addr, int value) {
