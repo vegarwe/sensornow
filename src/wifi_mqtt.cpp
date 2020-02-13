@@ -30,7 +30,7 @@ void wifi_loop()
     // Make one first attempt at connect, this seems to considerably speed up the first connection
     WiFi.disconnect();
     WiFi.begin(WIFI_SSID, WIFI_PASS);
-    delay(1000);
+    delay(100);
 
     // Loop (forever...), waiting for the WiFi connection to complete
     long vTimeout = millis() + WIFI_CONNECTION_TIMEOUT;
