@@ -83,6 +83,12 @@ void setup() {
     }
 
     uint16_t analog_value = analogRead(35);
+    if (analog_value < 2040)
+    {
+        // (2040 * 2 * 3.3 / 4095) + 0.366 ~= 3.65V
+        // No wake-up just shutdown and protect the battery
+        esp_deep_sleep_start();
+    }
 
     if (debugger)
     {
