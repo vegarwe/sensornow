@@ -1,8 +1,14 @@
 #include <Arduino.h>
+#include <MQTT.h>
+#include <WiFiClientSecure.h>
 #include <Wire.h>
-#include <ArduinoJson.h>
 
-#include "wifi_mqtt.h"
+#include "config.h"
+
+
+// WiFi and MQTT client
+static WiFiClientSecure net;
+static MQTTClient mqtt(384);
 
 
 //Default I2C Address of the sensor
@@ -23,6 +29,63 @@
 
 static HardwareSerial* debugger = NULL;
 
+static RTC_DATA_ATTR int bootCount = 0;
+
+static RTC_DATA_ATTR struct {
+    byte mac [ 6 ];
+    byte mode;
+    byte chl;
+    uint32_t ip;
+    uint32_t gw;
+    uint32_t msk;
+    uint32_t dns;
+    uint32_t seq;
+    uint32_t chk;
+} cfgbuf;
+
+
+static bool checkCfg()
+{
+    // See https://github.com/tve/low-power-wifi/blob/master/esp32-deep-sleep-mqtts/src/main.ino
+    uint32_t x = 0;
+    uint32_t *p = (uint32_t *)cfgbuf.mac;
+    for (uint32_t i = 0; i < sizeof(cfgbuf)/4; i++) x += p[i];
+    if (debugger) debugger->printf("RTC read: chk=%x x=%x ip=%08x mode=%d %s\n",
+            cfgbuf.chk, x, cfgbuf.ip, cfgbuf.mode, x==0?"OK":"FAIL");
+    if (x == 0 && cfgbuf.ip != 0) return true;
+    if (debugger) debugger->println("NVRAM cfg init");
+    // bad checksum, init data
+    for (uint32_t i = 0; i < 6; i++) cfgbuf.mac[i] = 0xff;
+    cfgbuf.mode = 0; // chk err, reconfig
+    cfgbuf.chl = 0;
+    cfgbuf.ip = IPAddress(0, 0, 0, 0);
+    cfgbuf.gw = IPAddress(0, 0, 0, 0);
+    cfgbuf.msk = IPAddress(255, 255, 255, 0);
+    cfgbuf.dns = IPAddress(0, 0, 0, 0);
+    cfgbuf.seq = 100;
+    return false;
+}
+
+
+static void writecfg()
+{
+    // save new info
+    uint8_t *bssid = WiFi.BSSID();
+    for (int i=0; i<sizeof(cfgbuf.mac); i++) cfgbuf.mac[i] = bssid[i];
+    cfgbuf.chl = WiFi.channel();
+    cfgbuf.ip = WiFi.localIP();
+    cfgbuf.gw = WiFi.gatewayIP();
+    cfgbuf.msk = WiFi.subnetMask();
+    cfgbuf.dns = WiFi.dnsIP();
+    // recalculate checksum
+    uint32_t x = 0;
+    uint32_t *p = (uint32_t *)cfgbuf.mac;
+    for (uint32_t i = 0; i < sizeof(cfgbuf)/4-1; i++) x += p[i];
+    cfgbuf.chk = -x;
+    if (debugger) debugger->printf("RTC write: chk=%x x=%x ip=%08x mode=%d\n", cfgbuf.chk, x, cfgbuf.ip, cfgbuf.mode);
+}
+
+
 
 //--------------------------------------------------------------------------------
 static void mqtt_on_message(String &topic, String &payload)
@@ -38,14 +101,14 @@ static void mqtt_on_message(String &topic, String &payload)
 
 
 unsigned int readI2CRegister16bit(int addr, int reg) {
-  Wire.beginTransmission(addr);
-  Wire.write(reg);
-  Wire.endTransmission();
-  delay(20); // TODO: Enough time? I2CSoilMoistureSensor.cpp seems to think so
-  Wire.requestFrom(addr, 2);
-  unsigned int t = Wire.read() << 8;
-  t = t | Wire.read();
-  return t;
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    Wire.endTransmission();
+    delay(20); // TODO: Enough time? I2CSoilMoistureSensor.cpp seems to think so
+    Wire.requestFrom(addr, 2);
+    unsigned int t = Wire.read() << 8;
+    t = t | Wire.read();
+    return t;
 }
 
 
@@ -67,12 +130,10 @@ void print_wakeup_reason() {
     }
 }
 
-RTC_DATA_ATTR int bootCount = 0;
-
 
 //--------------------------------------------------------------------------------
 void setup() {
-    //debugger = &Serial1;
+    //debugger = &Serial;
 
     if (debugger)
     {
@@ -82,6 +143,7 @@ void setup() {
         debugger->println("Starting");
     }
 
+#ifdef FEATHER_ESP32
     uint16_t analog_value = analogRead(35);
     if (analog_value < 2040)
     {
@@ -97,24 +159,75 @@ void setup() {
         // (2112 * 2 * 3.3 / 4095) + 0.366 ~= 3.77
         // (2444 * 2 * 3.3 / 4095) + 0.366 ~= 4.2 -- 4.3
     }
-
-    pinMode(14, OUTPUT);
-    digitalWrite(14, HIGH);
-
-    Wire.begin();
-
-    wifi_mqtt_setup(debugger, mqtt_on_message);
+#else
+    uint16_t analog_value = 0;
+#endif
 
     ++bootCount;
     if (debugger) debugger->println("Boot number: " + String(bootCount));
     print_wakeup_reason();
 
+    //pinMode(14, OUTPUT);
+    //digitalWrite(14, HIGH);
+
+    //Wire.begin();
+
+    checkCfg();
+
+    //if (WiFi.getMode() != WIFI_OFF)
+    //{
+    //    if (debugger) debugger->println("Wifi wasn't off!");
+    //    WiFi.persistent(true);
+    //    WiFi.mode(WIFI_OFF);
+    //}
+
+    //WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    bool ok;
+
+    unsigned long fisken = millis();
+    if (cfgbuf.mode == 2)
+    {
+        ok = WiFi.config(cfgbuf.ip, cfgbuf.gw, cfgbuf.msk, cfgbuf.dns);
+        if (!ok && debugger) debugger->println("WiFi.config failed");
+        ok = WiFi.begin(WIFI_SSID, WIFI_PASS);
+        //ok = WiFi.begin(WIFI_SSID, WIFI_PASS, cfgbuf.chl, cfgbuf.mac);
+        if (debugger) debugger->println("Using mode 2");
+    }
+    else
+    {
+        ok = WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
+
+    while (WiFi.status() != WL_CONNECTED) delay(1);
+    if (debugger) debugger->printf("Connected  WiFi %lu\n", millis() - fisken);
+
+    // Configure WiFiClientSecure to use the AWS certificates we generated
+    net.setPreSharedKey(MQTT_IDNT, MQTT__PSK);
+
+    // Setup MQTT
+    fisken = millis();
+    mqtt.begin(MQTT_HOST, MQTT_PORT, net);
+    mqtt.onMessage(mqtt_on_message);
+    if (! mqtt.connect(MQTT_NAME))
+    {
+        if (debugger) debugger->println("Unable to connect");
+    }
+    if (debugger) debugger->printf("Connected  MQTT %lu\n", millis() - fisken);
+
+    cfgbuf.mode = 2;
+    writecfg();
+
+    unsigned long mqtt_connected = millis();
+
     //delay(1000); // give some time to boot up // TODO: Adaptive based on wifi_setup time
 
     //unsigned int fw_version         = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_VERSION);
     //unsigned int is_busy            = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_BUSY)
-    unsigned int soil_capacitance  = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_CAPACITANCE);
-    unsigned int temperature        = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_TEMPERATURE);
+    //unsigned int soil_capacitance  = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_CAPACITANCE);
+    //unsigned int temperature        = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_TEMPERATURE);
+    unsigned int soil_capacitance  = millis();
+    unsigned int temperature        = millis();
 
     if (debugger)
     {
@@ -130,49 +243,36 @@ void setup() {
         debugger->println();
     }
 
-    digitalWrite(14, LOW);
+    //digitalWrite(14, LOW);
 
-    wifi_mqtt_loop();
+    mqtt.loop();
     static char payload[512];
-    sprintf(payload,"{ \"temperature\": %d, \"soil_capacitance\": %d , \"battery_voltage\": %u}",
+    sprintf(payload,
+            "{ \"temperature\": %d,"
+            "  \"soil_capacitance\": %d,"
+            "  \"battery_voltage\": %u,"
+            "  \"millis\": %lu"
+            "}",
             temperature,
             soil_capacitance,
-            analog_value);
-    wifi_mqtt_publish("chirp/sensor", payload);
-    wifi_mqtt_loop();
+            analog_value,
+            mqtt_connected);
+    mqtt.publish("chirp/sonsor", payload);
+    mqtt.loop();
 
-    esp_sleep_enable_timer_wakeup(20 * 60 * 1000 * 1000);
-    //esp_sleep_enable_timer_wakeup(     10 * 1000 * 1000);
-    if (debugger) debugger->println("sleeping");
-    if (debugger) debugger->flush();
+    //esp_sleep_enable_timer_wakeup(20 * 60 * 1000 * 1000);
+    esp_sleep_enable_timer_wakeup(     10 * 1000 * 1000);
+    if (debugger)
+    {
+        debugger->print("sleeping after");
+        debugger->println(millis());
+        debugger->flush();
+    }
     esp_deep_sleep_start();
 }
 
 //--------------------------------------------------------------------------------
 void loop()
 {
-    //uint16_t analog_value = analogRead(35);
-
-    //if (debugger)
-    //{
-    //    debugger->print("battery measurement: ");
-    //    debugger->println(analog_value);
-    //}
-
-    //static char payload[512];
-    //sprintf(payload,"{ \"battery_voltage\": %u}", analog_value);
-    //wifi_mqtt_publish("chirp/sensor", payload);
-    //wifi_mqtt_loop();
-    //delay(3000);                   //this can take a while
 }
-
-//void writeI2CRegister8bit(int addr, int value) {
-//  Wire.beginTransmission(addr);
-//  Wire.write(value);
-//  Wire.endTransmission();
-//}
-//    writeI2CRegister8bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_MEASURE_LIGHT);
-//    delay(3000);                   //this can take a while
-//    Serial1.println(readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_LIGHT));
-
 
