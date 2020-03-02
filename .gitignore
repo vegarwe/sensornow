@@ -1,4 +1,4 @@
 .pio
 
-src/config.h
+ChirpAways/config.h
 *.sw[op]
