@@ -5,6 +5,12 @@
 
 #include "config.h"
 
+#if defined(ESP32_THING)
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+
+static Adafruit_BME280 bme; // I2C
+#endif
 
 // WiFi and MQTT client
 static WiFiClientSecure net;
@@ -204,10 +210,15 @@ void setup() {
     if (debugger) debugger->println("Boot number: " + String(bootCount));
     print_wakeup_reason();
 
-    //pinMode(14, OUTPUT);
-    //digitalWrite(14, HIGH);
+#if defined(FEATHER_ESP32)
+    pinMode(14, OUTPUT);
+    digitalWrite(14, HIGH);
 
-    //Wire.begin();
+    Wire.begin();
+#elif defined(ESP32_THING)
+    pinMode(14, OUTPUT);
+    digitalWrite(14, HIGH);
+#endif
 
     checkCfg();
 
@@ -259,18 +270,12 @@ void setup() {
 
     //delay(1000); // give some time to boot up // TODO: Adaptive based on wifi_setup time
 
+    static char payload[512];
 #if defined(FEATHER_ESP32)
     //unsigned int fw_version         = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_VERSION);
     //unsigned int is_busy            = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_BUSY)
     unsigned int soil_capacitance   = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_CAPACITANCE);
     unsigned int temperature        = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_TEMPERATURE);
-#elif defined(ESP32_THING)
-    unsigned int soil_capacitance   = millis();
-    unsigned int temperature        = millis();
-#else
-    unsigned int soil_capacitance   = millis();
-    unsigned int temperature        = millis();
-#endif
 
     if (debugger)
     {
@@ -286,20 +291,57 @@ void setup() {
         debugger->println();
     }
 
-    //digitalWrite(14, LOW);
+    digitalWrite(14, LOW);
 
-    mqtt.loop();
-    static char payload[512];
     sprintf(payload,
             "{ \"temperature\": %d,"
             "  \"soil_capacitance\": %d,"
             "  \"battery_voltage\": %u,"
+            "  \"mqtt_connected\": %lu"
             "  \"millis\": %lu"
             "}",
             temperature,
             soil_capacitance,
             analog_value,
-            mqtt_connected);
+            mqtt_connected,
+            millis());
+#elif defined(ESP32_THING)
+    // status = bme.begin(0x76, &Wire2)
+    if (! bme.begin(BME280_ADDRESS_ALTERNATE)) {
+        Serial.println("ERR: Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
+        Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(), 16);
+        Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
+        Serial.print("   ID of 0x56-0x58 represents a BMP 280,\n");
+        Serial.print("        ID of 0x60 represents a BME 280.\n");
+        Serial.print("        ID of 0x61 represents a BME 680.\n");
+        while (1) delay(10); // TODO: Go back to sleep!
+    }
+    float temperature   = bme.readTemperature();
+    float pressure      = bme.readPressure() / 100.0F;
+    float humidity      = bme.readHumidity();
+
+    digitalWrite(14, LOW);
+
+    sprintf(payload,"{ \"temperature\": %0.2f, \"pressure\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"mqtt_connected\": %lu, \"millis\": %lu }",
+            temperature,
+            pressure,
+            humidity,
+            analog_value,
+            mqtt_connected,
+            millis());
+
+    if (debugger)
+    {
+        debugger->print(payload);
+        debugger->println();
+    }
+#else
+    sprintf(payload,"{ \"mqtt_connected\": %lu, \"millis\": %lu }",
+            mqtt_connected,
+            millis());
+#endif
+
+    mqtt.loop();
     mqtt.publish("chirp/sonsor", payload);
     mqtt.loop();
     mqtt.disconnect();
