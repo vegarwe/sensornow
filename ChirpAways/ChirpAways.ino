@@ -26,6 +26,8 @@ static MQTTClient mqtt(384);
 #define SOILMOISTURESENSOR_SLEEP            0x08 // (w) n/a
 #define SOILMOISTURESENSOR_GET_BUSY         0x09 // (r) 1 bytes
 
+//#define SLEEP_TIME                          20 * 60 * 1000 * 1000L
+#define SLEEP_TIME                           1 * 60 * 1000 * 1000L
 
 static HardwareSerial* debugger = NULL;
 
@@ -131,6 +133,31 @@ void print_wakeup_reason() {
 }
 
 
+void vTaskFunction( void * pvParameters )
+{
+    // TaskHandle_t xTaskGetIdleTaskHandle( void );
+    // TaskHandle_t xTaskGetCurrentTaskHandle( void ) PRIVILEGED_FUNCTION;
+    // vTaskResumeAll();
+
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t x20SecondsInTicks  = (7500) / portTICK_RATE_MS;
+
+    // Wait for the next cycle.
+    vTaskDelayUntil(&xLastWakeTime, x20SecondsInTicks);
+
+    esp_sleep_enable_timer_wakeup(SLEEP_TIME);
+    if (debugger)
+    {
+        debugger->print("giving up after ");
+        debugger->println(millis());
+        debugger->flush();
+    }
+    esp_deep_sleep_start();
+
+    vTaskDelete(NULL);
+}
+
+
 //--------------------------------------------------------------------------------
 void setup() {
     //debugger = &Serial;
@@ -143,25 +170,35 @@ void setup() {
         debugger->println("Starting");
     }
 
-#ifdef FEATHER_ESP32
-    uint16_t analog_value = analogRead(35);
+    uint16_t analog_value = 0;
+#if defined(FEATHER_ESP32)
+    analog_value = analogRead(35);
     if (analog_value < 2040)
     {
         // (2040 * 2 * 3.3 / 4095) + 0.366 ~= 3.65V
         // No wake-up just shutdown and protect the battery
         esp_deep_sleep_start();
     }
+#elif defined(ESP32_THING)
+    analog_value = analogRead(35);
+    if (analog_value < 1500)
+    {
+        // (1405 * 2 * 3.3 / 4095) + 0.910 ~= 3.174V
+        // No wake-up just shutdown and protect the battery
+        esp_deep_sleep_start();
+    }
+#endif
 
-    if (debugger)
+    if (debugger && analog_value != 0)
     {
         debugger->print("battery measurement: ");
         debugger->println(analog_value);
         // (2112 * 2 * 3.3 / 4095) + 0.366 ~= 3.77
         // (2444 * 2 * 3.3 / 4095) + 0.366 ~= 4.2 -- 4.3
     }
-#else
-    uint16_t analog_value = 0;
-#endif
+
+    // Start background timeout
+    xTaskCreate(vTaskFunction, "vTaskFunction", 10000, (void *)1, tskIDLE_PRIORITY, NULL);
 
     ++bootCount;
     if (debugger) debugger->println("Boot number: " + String(bootCount));
@@ -222,12 +259,18 @@ void setup() {
 
     //delay(1000); // give some time to boot up // TODO: Adaptive based on wifi_setup time
 
+#if defined(FEATHER_ESP32)
     //unsigned int fw_version         = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_VERSION);
     //unsigned int is_busy            = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_BUSY)
-    //unsigned int soil_capacitance  = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_CAPACITANCE);
-    //unsigned int temperature        = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_TEMPERATURE);
-    unsigned int soil_capacitance  = millis();
+    unsigned int soil_capacitance   = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_CAPACITANCE);
+    unsigned int temperature        = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_TEMPERATURE);
+#elif defined(ESP32_THING)
+    unsigned int soil_capacitance   = millis();
     unsigned int temperature        = millis();
+#else
+    unsigned int soil_capacitance   = millis();
+    unsigned int temperature        = millis();
+#endif
 
     if (debugger)
     {
@@ -259,12 +302,15 @@ void setup() {
             mqtt_connected);
     mqtt.publish("chirp/sonsor", payload);
     mqtt.loop();
+    mqtt.disconnect();
+    mqtt.loop();
+    mqtt.loop();
+    if (debugger) debugger->println("disconnecting");
 
-    //esp_sleep_enable_timer_wakeup(20 * 60 * 1000 * 1000);
-    esp_sleep_enable_timer_wakeup(     10 * 1000 * 1000);
+    esp_sleep_enable_timer_wakeup(SLEEP_TIME);
     if (debugger)
     {
-        debugger->print("sleeping after");
+        debugger->print("sleeping after ");
         debugger->println(millis());
         debugger->flush();
     }
