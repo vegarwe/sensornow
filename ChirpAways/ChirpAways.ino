@@ -32,8 +32,8 @@ static MQTTClient mqtt(384);
 #define SOILMOISTURESENSOR_SLEEP            0x08 // (w) n/a
 #define SOILMOISTURESENSOR_GET_BUSY         0x09 // (r) 1 bytes
 
-//#define SLEEP_TIME                          20 * 60 * 1000 * 1000L
-#define SLEEP_TIME                           1 * 60 * 1000 * 1000L
+#define SLEEP_TIME                          20 * 60 * 1000 * 1000L
+//#define SLEEP_TIME                           1 * 60 * 1000 * 1000L
 
 static HardwareSerial* debugger = NULL;
 
