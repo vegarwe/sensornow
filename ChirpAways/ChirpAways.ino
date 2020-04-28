@@ -205,8 +205,8 @@ void setup() {
     print_wakeup_reason();
 
 #if defined(CHIRP_SENSOR)
-    pinMode(21, OUTPUT);
-    digitalWrite(21, HIGH);
+    pinMode(23, OUTPUT);
+    digitalWrite(23, HIGH);
 
     Wire.begin();
 #elif defined(BME280_SENSOR)
@@ -285,14 +285,14 @@ void setup() {
         debugger->println();
     }
 
-    digitalWrite(21, LOW);
+    digitalWrite(23, LOW);
 
     sprintf(payload,
-            "{ \"temperature\": %d,"
-            "  \"soil_capacitance\": %d,"
-            "  \"battery_voltage\": %u,"
-            "  \"mqtt_connected\": %lu"
-            "  \"millis\": %lu"
+            "{ \"temperature\": % 3d,"
+             " \"soil_capacitance\": % 3d,"
+             " \"battery_voltage\": %d,"
+             " \"mqtt_connected\": %lu,"
+             " \"millis\": %lu"
             "}",
             temperature,
             soil_capacitance,
