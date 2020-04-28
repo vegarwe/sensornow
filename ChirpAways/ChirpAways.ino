@@ -5,7 +5,7 @@
 
 #include "config.h"
 
-#if defined(ESP32_THING)
+#if defined(BME280_SENSOR)
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
@@ -177,24 +177,16 @@ void setup() {
     }
 
     uint16_t analog_value = 0;
-#if defined(FEATHER_ESP32)
+#if defined(BATT_VOLT_DIV)
     analog_value = analogRead(35);
-    if (false /*analog_value < 2040*/)
+#if defined(BATT_PROTECTION)
+    if (analog_value < BATT_PROTECTION)
     {
-        // (2040 * 2 * 3.3 / 4095) + 0.366 ~= 3.65V
         // No wake-up just shutdown and protect the battery
         if (debugger) debugger->printf("Battery too low(%d), going to sleep\n", analog_value);
         esp_deep_sleep_start();
     }
-#elif defined(ESP32_THING)
-    analog_value = analogRead(35);
-    if (analog_value < 1500)
-    {
-        // (1405 * 2 * 3.3 / 4095) + 0.910 ~= 3.174V
-        // No wake-up just shutdown and protect the battery
-        if (debugger) debugger->printf("Battery too low(%d), going to sleep\n", analog_value);
-        esp_deep_sleep_start();
-    }
+#endif
 #endif
 
     if (debugger && analog_value != 0)
@@ -212,12 +204,12 @@ void setup() {
     if (debugger) debugger->println("Boot number: " + String(bootCount));
     print_wakeup_reason();
 
-#if defined(FEATHER_ESP32)
+#if defined(CHIRP_SENSOR)
     pinMode(21, OUTPUT);
     digitalWrite(21, HIGH);
 
     Wire.begin();
-#elif defined(ESP32_THING)
+#elif defined(BME280_SENSOR)
     pinMode(14, OUTPUT);
     digitalWrite(14, HIGH);
 #endif
@@ -273,7 +265,7 @@ void setup() {
     //delay(1000); // give some time to boot up // TODO: Adaptive based on wifi_setup time
 
     static char payload[512];
-#if defined(FEATHER_ESP32)
+#if defined(CHIRP_SENSOR)
     //unsigned int fw_version         = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_VERSION);
     //unsigned int is_busy            = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_BUSY)
     unsigned int soil_capacitance   = readI2CRegister16bit(SOILMOISTURESENSOR_DEFAULT_ADDR, SOILMOISTURESENSOR_GET_CAPACITANCE);
@@ -307,7 +299,7 @@ void setup() {
             analog_value,
             mqtt_connected,
             millis());
-#elif defined(ESP32_THING)
+#elif defined(BME280_SENSOR)
     // status = bme.begin(0x76, &Wire2)
     if (! bme.begin(BME280_ADDRESS_ALTERNATE)) {
         Serial.println("ERR: Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
