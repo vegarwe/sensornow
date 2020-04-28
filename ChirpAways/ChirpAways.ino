@@ -9,28 +9,13 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-static Adafruit_BME280 bme; // I2C
+static Adafruit_BME280 bme;
 #endif
 
 // WiFi and MQTT client
 static WiFiClientSecure net;
 static MQTTClient mqtt(384);
 
-
-//Default I2C Address of the sensor
-#define SOILMOISTURESENSOR_DEFAULT_ADDR     0x20
-
-//Soil Moisture Sensor Register Addresses
-#define SOILMOISTURESENSOR_GET_CAPACITANCE  0x00 // (r) 2 bytes
-#define SOILMOISTURESENSOR_SET_ADDRESS      0x01 // (w) 1 byte
-#define SOILMOISTURESENSOR_GET_ADDRESS      0x02 // (r) 1 byte
-#define SOILMOISTURESENSOR_MEASURE_LIGHT    0x03 // (w) n/a
-#define SOILMOISTURESENSOR_GET_LIGHT        0x04 // (r) 2 bytes
-#define SOILMOISTURESENSOR_GET_TEMPERATURE  0x05 // (r) 2 bytes
-#define SOILMOISTURESENSOR_RESET            0x06 // (w) n/a
-#define SOILMOISTURESENSOR_GET_VERSION      0x07 // (r) 1 bytes
-#define SOILMOISTURESENSOR_SLEEP            0x08 // (w) n/a
-#define SOILMOISTURESENSOR_GET_BUSY         0x09 // (r) 1 bytes
 
 #define SLEEP_TIME                          20 * 60 * 1000 * 1000L
 //#define SLEEP_TIME                           1 * 60 * 1000 * 1000L
@@ -94,7 +79,6 @@ static void writecfg()
 }
 
 
-
 //--------------------------------------------------------------------------------
 static void mqtt_on_message(String &topic, String &payload)
 {
@@ -107,6 +91,22 @@ static void mqtt_on_message(String &topic, String &payload)
     }
 }
 
+#if defined(CHIRP_SENSOR)
+//Default I2C Address of the sensor
+#define SOILMOISTURESENSOR_DEFAULT_ADDR     0x20
+
+//Soil Moisture Sensor Register Addresses
+#define SOILMOISTURESENSOR_GET_CAPACITANCE  0x00 // (r) 2 bytes
+#define SOILMOISTURESENSOR_SET_ADDRESS      0x01 // (w) 1 byte
+#define SOILMOISTURESENSOR_GET_ADDRESS      0x02 // (r) 1 byte
+#define SOILMOISTURESENSOR_MEASURE_LIGHT    0x03 // (w) n/a
+#define SOILMOISTURESENSOR_GET_LIGHT        0x04 // (r) 2 bytes
+#define SOILMOISTURESENSOR_GET_TEMPERATURE  0x05 // (r) 2 bytes
+#define SOILMOISTURESENSOR_RESET            0x06 // (w) n/a
+#define SOILMOISTURESENSOR_GET_VERSION      0x07 // (r) 1 bytes
+#define SOILMOISTURESENSOR_SLEEP            0x08 // (w) n/a
+#define SOILMOISTURESENSOR_GET_BUSY         0x09 // (r) 1 bytes
+
 
 unsigned int readI2CRegister16bit(int addr, int reg) {
     Wire.beginTransmission(addr);
@@ -118,6 +118,8 @@ unsigned int readI2CRegister16bit(int addr, int reg) {
     t = t | Wire.read();
     return t;
 }
+
+#endif
 
 
 void print_wakeup_reason() {
@@ -141,10 +143,6 @@ void print_wakeup_reason() {
 
 void vTaskFunction( void * pvParameters )
 {
-    // TaskHandle_t xTaskGetIdleTaskHandle( void );
-    // TaskHandle_t xTaskGetCurrentTaskHandle( void ) PRIVILEGED_FUNCTION;
-    // vTaskResumeAll();
-
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t x20SecondsInTicks  = (7500) / portTICK_RATE_MS;
 
@@ -261,8 +259,6 @@ void setup() {
     writecfg();
 
     unsigned long mqtt_connected = millis();
-
-    //delay(1000); // give some time to boot up // TODO: Adaptive based on wifi_setup time
 
     static char payload[512];
 #if defined(CHIRP_SENSOR)
