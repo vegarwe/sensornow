@@ -179,10 +179,11 @@ void setup() {
     uint16_t analog_value = 0;
 #if defined(FEATHER_ESP32)
     analog_value = analogRead(35);
-    if (analog_value < 2040)
+    if (false /*analog_value < 2040*/)
     {
         // (2040 * 2 * 3.3 / 4095) + 0.366 ~= 3.65V
         // No wake-up just shutdown and protect the battery
+        if (debugger) debugger->printf("Battery too low(%d), going to sleep\n", analog_value);
         esp_deep_sleep_start();
     }
 #elif defined(ESP32_THING)
@@ -191,6 +192,7 @@ void setup() {
     {
         // (1405 * 2 * 3.3 / 4095) + 0.910 ~= 3.174V
         // No wake-up just shutdown and protect the battery
+        if (debugger) debugger->printf("Battery too low(%d), going to sleep\n", analog_value);
         esp_deep_sleep_start();
     }
 #endif
@@ -211,8 +213,8 @@ void setup() {
     print_wakeup_reason();
 
 #if defined(FEATHER_ESP32)
-    pinMode(14, OUTPUT);
-    digitalWrite(14, HIGH);
+    pinMode(21, OUTPUT);
+    digitalWrite(21, HIGH);
 
     Wire.begin();
 #elif defined(ESP32_THING)
@@ -291,7 +293,7 @@ void setup() {
         debugger->println();
     }
 
-    digitalWrite(14, LOW);
+    digitalWrite(21, LOW);
 
     sprintf(payload,
             "{ \"temperature\": %d,"
@@ -342,7 +344,7 @@ void setup() {
 #endif
 
     mqtt.loop();
-    mqtt.publish("chirp/sonsor", payload);
+    mqtt.publish("chirp/sensor", payload);
     mqtt.loop();
     mqtt.disconnect();
     mqtt.loop();
