@@ -22,7 +22,8 @@ static MQTTClient mqtt(384);
 
 static HardwareSerial* debugger = NULL;
 
-static RTC_DATA_ATTR int bootCount = 0;
+static RTC_DATA_ATTR int boot_count = 0;
+static RTC_DATA_ATTR int success_count = 0;
 
 static RTC_DATA_ATTR struct {
     byte mac [ 6 ];
@@ -141,21 +142,27 @@ void print_wakeup_reason() {
 }
 
 
-void vTaskFunction( void * pvParameters )
+void vTaskFunction(void * pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t x20SecondsInTicks  = (7500) / portTICK_RATE_MS;
+    TickType_t x20SecondsInTicks = (12500) / portTICK_RATE_MS;
+
+    if (cfgbuf.ip == 0) {
+        x20SecondsInTicks = (25500) / portTICK_RATE_MS;
+        if (debugger) debugger->println("Grant extra time");
+    }
 
     // Wait for the next cycle.
     vTaskDelayUntil(&xLastWakeTime, x20SecondsInTicks);
 
+    success_count = 0;
+
+    Serial.print("giving up after ");
+    Serial.println(millis());
+    Serial.flush();
+
+    cfgbuf.ip = 0; // Invalidate stored WIFI settings
     esp_sleep_enable_timer_wakeup(SLEEP_TIME);
-    if (debugger)
-    {
-        debugger->print("giving up after ");
-        debugger->println(millis());
-        debugger->flush();
-    }
     esp_deep_sleep_start();
 
     vTaskDelete(NULL);
@@ -195,11 +202,8 @@ void setup() {
         // (2444 * 2 * 3.3 / 4095) + 0.366 ~= 4.2 -- 4.3
     }
 
-    // Start background timeout
-    xTaskCreate(vTaskFunction, "vTaskFunction", 10000, (void *)1, tskIDLE_PRIORITY, NULL);
-
-    ++bootCount;
-    if (debugger) debugger->println("Boot number: " + String(bootCount));
+    ++boot_count;
+    if (debugger) debugger->println("Boot number: " + String(boot_count));
     print_wakeup_reason();
 
 #if defined(CHIRP_SENSOR)
@@ -213,6 +217,9 @@ void setup() {
 #endif
 
     checkCfg();
+
+    // Start background timeout
+    xTaskCreate(vTaskFunction, "vTaskFunction", 10000, (void *)1, tskIDLE_PRIORITY, NULL);
 
     //if (WiFi.getMode() != WIFI_OFF)
     //{
@@ -259,6 +266,7 @@ void setup() {
     writecfg();
 
     unsigned long mqtt_connected = millis();
+    success_count++;
 
     static char payload[512];
 #if defined(CHIRP_SENSOR)
@@ -288,12 +296,16 @@ void setup() {
              " \"soil_capacitance\": % 3d,"
              " \"battery_voltage\": %d,"
              " \"mqtt_connected\": %lu,"
+             " \"success_count\": %u,"
+             " \"boot_count\": %u,"
              " \"millis\": %lu"
             "}",
             temperature,
             soil_capacitance,
             analog_value,
             mqtt_connected,
+            success_count,
+            boot_count,
             millis());
 #elif defined(BME280_SENSOR)
     // status = bme.begin(0x76, &Wire2)
@@ -312,12 +324,14 @@ void setup() {
 
     digitalWrite(14, LOW);
 
-    sprintf(payload,"{ \"temperature\": %0.2f, \"pressure\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"mqtt_connected\": %lu, \"millis\": %lu }",
+    sprintf(payload,"{ \"temperature\": %0.2f, \"pressure\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"mqtt_connected\": %lu, \"success_count\": %u, \"boot_count\": %u, \"millis\": %lu }",
             temperature,
             pressure,
             humidity,
             analog_value,
             mqtt_connected,
+            success_count,
+            boot_count,
             millis());
 
     if (debugger)
@@ -332,7 +346,7 @@ void setup() {
 #endif
 
     mqtt.loop();
-    mqtt.publish("chirp/sensor", payload);
+    mqtt.publish("chirp/sonsor", payload);
     mqtt.loop();
     mqtt.disconnect();
     mqtt.loop();
