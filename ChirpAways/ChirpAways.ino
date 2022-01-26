@@ -9,8 +9,18 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
+#define POWPIN 14               // what pin is providing 3.3V power
 static Adafruit_BME280 bme;
 #endif
+
+#if defined(DHT22_SENSOR)
+#include <DHT.h>
+
+#define POWPIN 14               // what pin is providing 3.3V power
+#define DHTPIN 21               // what pin we're connected to
+static DHT dht(DHTPIN, DHT22);  // Initialize DHT sensor for normal 16mhz Arduino
+#endif
+
 
 // WiFi and MQTT client
 static WiFiClientSecure net;
@@ -19,6 +29,7 @@ static MQTTClient mqtt(384);
 
 #define SLEEP_TIME                          20 * 60 * 1000 * 1000L
 //#define SLEEP_TIME                           1 * 60 * 1000 * 1000L
+//#define SLEEP_TIME                           1 * 20 * 1000 * 1000L
 
 static HardwareSerial* debugger = NULL;
 
@@ -145,7 +156,7 @@ void print_wakeup_reason() {
 void vTaskFunction(void * pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    TickType_t x20SecondsInTicks = (12500) / portTICK_RATE_MS;
+    TickType_t x20SecondsInTicks = (15000) / portTICK_RATE_MS;
 
     if (cfgbuf.ip == 0) {
         x20SecondsInTicks = (25500) / portTICK_RATE_MS;
@@ -212,8 +223,13 @@ void setup() {
 
     Wire.begin();
 #elif defined(BME280_SENSOR)
-    pinMode(14, OUTPUT);
-    digitalWrite(14, HIGH);
+    pinMode(POWPIN, OUTPUT);
+    digitalWrite(POWPIN, HIGH);
+#elif defined(DHT22_SENSOR)
+    pinMode(POWPIN, OUTPUT);
+    digitalWrite(POWPIN, HIGH);
+
+    dht.begin();
 #endif
 
     checkCfg();
@@ -250,13 +266,16 @@ void setup() {
     if (debugger) debugger->printf("Connected  WiFi %lu\n", millis() - fisken);
 
     // Configure WiFiClientSecure to use the AWS certificates we generated
-    net.setPreSharedKey(MQTT_IDNT, MQTT__PSK);
+    //net.setPreSharedKey(MQTT_IDNT, MQTT__PSK);
+    net.setCACert(root_ca_pem);
 
     // Setup MQTT
     fisken = millis();
     mqtt.begin(MQTT_HOST, MQTT_PORT, net);
     mqtt.onMessage(mqtt_on_message);
-    if (! mqtt.connect(MQTT_NAME))
+
+    //if (! mqtt.connect(MQTT_NAME))
+    if (! mqtt.connect(MQTT_NAME, MQTT_USER, MQTT_PASS))
     {
         if (debugger) debugger->println("Unable to connect");
     }
@@ -322,11 +341,39 @@ void setup() {
     float pressure      = bme.readPressure() / 100.0F;
     float humidity      = bme.readHumidity();
 
-    digitalWrite(14, LOW);
+    digitalWrite(POWPIN, LOW);
 
     sprintf(payload,"{ \"temperature\": %0.2f, \"pressure\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"mqtt_connected\": %lu, \"success_count\": %u, \"boot_count\": %u, \"millis\": %lu }",
             temperature,
             pressure,
+            humidity,
+            analog_value,
+            mqtt_connected,
+            success_count,
+            boot_count,
+            millis());
+
+    if (debugger)
+    {
+        debugger->print(payload);
+        debugger->println();
+    }
+#elif defined(DHT22_SENSOR)
+    float temperature   = dht.readTemperature();
+    float humidity      = dht.readHumidity();
+
+    if (isnan(temperature) || isnan(humidity))
+    {
+        if (debugger) debugger->println("Give sensor extra time");
+        delay(2000);
+        temperature     = dht.readTemperature();
+        humidity        = dht.readHumidity();
+    }
+
+    digitalWrite(POWPIN, LOW);
+
+    sprintf(payload,"{ \"temperature\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"mqtt_connected\": %lu, \"success_count\": %u, \"boot_count\": %u, \"millis\": %lu }",
+            temperature,
             humidity,
             analog_value,
             mqtt_connected,
