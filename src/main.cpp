@@ -96,7 +96,7 @@ void setup()
     if (debugger)
     {
         debugger->begin(115200);
-        delay(100);
+        //delay(100);
         debugger->println("");
         debugger->println("Starting");
     }
@@ -180,12 +180,20 @@ void setup()
     float temperature   = dht.readTemperature();
     float humidity      = dht.readHumidity();
 
-    if (isnan(temperature) || isnan(humidity))
+    for (int i = 0; i < 3; i++)
     {
-        if (debugger) debugger->println("Give sensor extra time");
-        delay(2000);
+        delay(1000);
         temperature     = dht.readTemperature();
         humidity        = dht.readHumidity();
+
+        if (isnan(temperature) || isnan(humidity))
+        {
+            if (debugger) debugger->println("Give sensor extra time");
+        }
+        else
+        {
+            break;
+        }
     }
 
     digitalWrite(POWPIN, LOW);
