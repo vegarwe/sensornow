@@ -1,4 +1,7 @@
 #include <Arduino.h>
+//#include <adc.h>
+//#include <bt/esp_bt.h>
+//#include <esp_wifi.h>
 #include <esp_now.h>
 #include <Wire.h>
 #include <WiFi.h>
@@ -63,6 +66,14 @@ void goto_sleep(const char* reason)
         debugger->flush();
     }
 
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    btStop();
+
+    //adc_power_off();
+    //esp_wifi_stop();
+    //esp_bt_controller_disable();
+
     esp_sleep_enable_timer_wakeup(SLEEP_TIME);
     esp_deep_sleep_start();
 }
@@ -96,7 +107,6 @@ void setup()
     if (debugger)
     {
         debugger->begin(115200);
-        //delay(100);
         debugger->println("");
         debugger->println("Starting");
     }
@@ -122,36 +132,14 @@ void setup()
 
     print_wakeup_reason();
 
-#if   defined(BME280_SENSOR)
-    pinMode(POWPIN, OUTPUT);
-    digitalWrite(POWPIN, HIGH);
-#elif defined(DHT22_SENSOR)
-    pinMode(POWPIN, OUTPUT);
-    digitalWrite(POWPIN, HIGH);
-
-    dht.begin();
-#endif
-
     // Start background timeout
     xTaskCreate(vTaskFunction, "vTaskFunction", 10000, (void *)1, tskIDLE_PRIORITY, NULL);
 
-    // Connect to gateway
-    WiFi.mode(WIFI_STA);
-    esp_now_init();
-    esp_now_register_send_cb(OnDataSent);
-
-    esp_now_peer_info_t peerInfo = {0};
-    memcpy(peerInfo.peer_addr, broadcastAddress, sizeof(broadcastAddress));
-    peerInfo.channel = broadcastChannel;
-    peerInfo.encrypt = false;
-
-    if (esp_now_add_peer(&peerInfo) != ESP_OK){
-        goto_sleep("Failed to add peer");
-    }
-
-
     static char payload[512];
 #if   defined(BME280_SENSOR)
+    pinMode(POWPIN, OUTPUT);
+    digitalWrite(POWPIN, HIGH);
+
     // status = bme.begin(0x76, &Wire2)
     if (! bme.begin(BME280_ADDRESS_ALTERNATE)) {
         if (debugger)
@@ -164,6 +152,7 @@ void setup()
         }
         goto_sleep("ERR: Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
     }
+
     float temperature   = bme.readTemperature();
     float pressure      = bme.readPressure() / 100.0F;
     float humidity      = bme.readHumidity();
@@ -177,6 +166,11 @@ void setup()
             battery_value,
             millis());
 #elif defined(DHT22_SENSOR)
+    pinMode(POWPIN, OUTPUT);
+    digitalWrite(POWPIN, HIGH);
+
+    dht.begin();
+
     float temperature   = dht.readTemperature();
     float humidity      = dht.readHumidity();
 
@@ -215,6 +209,21 @@ void setup()
         debugger->print(payload);
         debugger->println();
     }
+
+    // Connect to gateway, send data
+    WiFi.mode(WIFI_STA);
+    esp_now_init();
+    esp_now_register_send_cb(OnDataSent);
+
+    esp_now_peer_info_t peerInfo = {0};
+    memcpy(peerInfo.peer_addr, broadcastAddress, sizeof(broadcastAddress));
+    peerInfo.channel = broadcastChannel;
+    peerInfo.encrypt = false;
+
+    if (esp_now_add_peer(&peerInfo) != ESP_OK){
+        goto_sleep("Failed to add peer");
+    }
+
 
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t*)payload, strnlen(payload, sizeof(payload)));
     if (result != ESP_OK && debugger)
