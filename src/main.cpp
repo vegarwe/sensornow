@@ -3,6 +3,9 @@
 //#include <bt/esp_bt.h>
 //#include <esp_wifi.h>
 #include <esp_now.h>
+//#include "esp_sleep.h"
+#include "driver/rtc_io.h"
+//#include "driver/gpio.h"
 #include <Wire.h>
 #include <WiFi.h>
 
@@ -11,29 +14,38 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-#define POWPIN 14               // what pin is providing 3.3V power
+#define POWPIN GPIO_NUM_14      // what pin is providing 3.3V power
 static Adafruit_BME280 bme;
 #endif
 
 #if defined(DHT22_SENSOR)
 #include <DHT.h>
 
-#define POWPIN 14               // what pin is providing 3.3V power
-#define DHTPIN 21               // what pin we're connected to
+#define POWPIN GPIO_NUM_14      // what pin is providing 3.3V power
+#define GNDPIN GPIO_NUM_15      // what pin is providing 3.3V power
+#define DHTPIN GPIO_NUM_21      // what pin we're connected to
 static DHT dht(DHTPIN, DHT22);  // Initialize DHT sensor for normal 16mhz Arduino
 #endif
 
 
 #if defined(SIMULATOR)
-    #define SLEEP_TIME       20 * 1000 * 1000L
+    #define SLEEP_TIME  (     20 * 1000 * 1000L)
 #else
-    #define SLEEP_TIME  20 * 60 * 1000 * 1000L
+    #define SLEEP_TIME  (     60 * 1000 * 1000L)
+  //#define SLEEP_TIME  (20 * 60 * 1000 * 1000L)
 #endif
 
+typedef struct {
+    float temperature;
+    float humidity;
+    float pressure;
+} reading;
 
-static HardwareSerial*  debugger            = NULL;
-static uint8_t          broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
-static uint8_t          broadcastChannel    = 1;
+static HardwareSerial*          debugger            = NULL;
+static uint8_t                  broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
+static uint8_t                  broadcastChannel    = 1;
+static RTC_DATA_ATTR uint8_t    reading_count       = 0;
+static RTC_DATA_ATTR reading    readings[20]        = {0};
 
 
 void print_wakeup_reason()
@@ -43,6 +55,10 @@ void print_wakeup_reason()
     esp_sleep_wakeup_cause_t wakeup_reason;
 
     wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    // ~/.platformio/packages/framework-arduinoespressif32@3.10004.201016/tools/sdk/include/esp32/rom/rtc.h
+    //RESET_REASON rtc_get_reset_reason(int cpu_no);
+    //RTCWDT_BROWN_OUT_RESET = 15,    /**<15, Reset when the vdd voltage is not stable*/
 
     switch(wakeup_reason)
     {
@@ -103,12 +119,24 @@ void setup()
 #if defined(SIMULATOR)
     debugger = &Serial;
 #endif
+    //debugger = &Serial1;
+
+    if (reading_count % 2 == 1)
+    {
+        debugger = &Serial;
+    }
 
     if (debugger)
     {
         debugger->begin(115200);
         debugger->println("");
+        debugger->print("reading_count ");
+        debugger->println(reading_count);
         debugger->println("Starting");
+    }
+    else
+    {
+        Serial.end();
     }
 
     uint16_t battery_value = 0;
@@ -135,7 +163,6 @@ void setup()
     // Start background timeout
     xTaskCreate(vTaskFunction, "vTaskFunction", 10000, (void *)1, tskIDLE_PRIORITY, NULL);
 
-    static char payload[512];
 #if   defined(BME280_SENSOR)
     pinMode(POWPIN, OUTPUT);
     digitalWrite(POWPIN, HIGH);
@@ -153,61 +180,58 @@ void setup()
         goto_sleep("ERR: Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
     }
 
-    float temperature   = bme.readTemperature();
-    float pressure      = bme.readPressure() / 100.0F;
-    float humidity      = bme.readHumidity();
+    readings[reading_count].temperature = bme.readTemperature();
+    readings[reading_count].pressure    = bme.readPressure() / 100.0F;
+    readings[reading_count].humidity    = bme.readHumidity();
+    reading_count++;
 
     digitalWrite(POWPIN, LOW);
-
-    sprintf(payload,"/sensor_now/data { \"temperature\": %0.2f, \"pressure\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"millis\": %lu }",
-            temperature,
-            pressure,
-            humidity,
-            battery_value,
-            millis());
 #elif defined(DHT22_SENSOR)
     pinMode(POWPIN, OUTPUT);
     digitalWrite(POWPIN, HIGH);
+    pinMode(GNDPIN, OUTPUT);
+    digitalWrite(GNDPIN, LOW);
 
     dht.begin();
 
-    float temperature   = dht.readTemperature();
-    float humidity      = dht.readHumidity();
+    if (debugger) debugger->flush();
+    rtc_gpio_hold_en(GNDPIN);
+    rtc_gpio_hold_en(DHTPIN);
+    rtc_gpio_hold_en(POWPIN);
+    esp_sleep_enable_timer_wakeup(2100 * 1000);
+    esp_light_sleep_start();
 
-    for (int i = 0; i < 3; i++)
+    readings[reading_count].temperature = dht.readTemperature();
+    readings[reading_count].humidity    = dht.readHumidity();
+    readings[reading_count].pressure    = NAN;
+
+    if (isnan(readings[reading_count].temperature) || isnan(readings[reading_count].humidity))
     {
-        delay(1000);
-        temperature     = dht.readTemperature();
-        humidity        = dht.readHumidity();
-
-        if (isnan(temperature) || isnan(humidity))
-        {
-            if (debugger) debugger->println("Give sensor extra time");
-        }
-        else
-        {
-            break;
-        }
+        goto_sleep("Did not get a valid reading");
     }
+    reading_count++;
 
     digitalWrite(POWPIN, LOW);
-
-    sprintf(payload,"/sensor_now/data { \"temperature\": %0.2f, \"humidity\": %.2f, \"battery_voltage\": %u, \"millis\": %lu }",
-            temperature,
-            humidity,
-            battery_value,
-            millis());
+    pinMode(DHTPIN, OUTPUT);
+    digitalWrite(DHTPIN, LOW);
+    //gpio_hold_en(DHTPIN);
+    //gpio_hold_en(POWPIN);
+    //gpio_deep_sleep_hold_en();
 #else
-    sprintf(payload,"/sensor_now/data { \"battery_voltage\": %u, \"millis\": %lu }",
-            battery_value,
-            millis());
+    readings[reading_count].temperature = NAN;
+    readings[reading_count].humidity    = NAN;
+    readings[reading_count].pressure    = NAN;
+    reading_count++;
 #endif
 
-    if (debugger)
+    //if (reading_count < (sizeof(readings) / sizeof(readings[0])))
+    //{
+    //    goto_sleep("caching");
+    //}
+    //goto_sleep("cheating...");
+    if (reading_count < 10)
     {
-        debugger->printf("%d\n", strnlen(payload, sizeof(payload)));
-        debugger->print(payload);
-        debugger->println();
+        goto_sleep("caching");
     }
 
     // Connect to gateway, send data
@@ -224,12 +248,39 @@ void setup()
         goto_sleep("Failed to add peer");
     }
 
+    //uint8_t mac[WL_MAC_ADDR_LENGTH];
+    //WiFi.macAddress(mac);
+    //memcpy(&payload[idx], mac, WL_MAC_ADDR_LENGTH);
+    //idx += WL_MAC_ADDR_LENGTH;
+
+    static char payload[255];
+    int idx = 0;
+    idx += sprintf(&payload[idx], "/sensor_now/data {\"batt\":%u,\"millis\":%lu,\"data\":[",
+            battery_value, millis());
+    for (uint8_t i = 0; i < reading_count; i++)
+    {
+        idx += sprintf(&payload[idx], "[%.2f,%.2f],",
+                readings[i].temperature,
+                //readings[i].pressure,
+                readings[i].humidity);
+    }
+    idx--;
+    idx += sprintf(&payload[idx], "]}");
+
+    if (debugger)
+    {
+        debugger->printf("payload size: %d: ", strnlen(payload, sizeof(payload)));
+        debugger->print(payload);
+        debugger->println();
+    }
 
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t*)payload, strnlen(payload, sizeof(payload)));
     if (result != ESP_OK && debugger)
     {
         debugger->println("Error sending the data");
     }
+
+    reading_count = 0;
 }
 
 void loop()
