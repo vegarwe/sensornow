@@ -5,7 +5,6 @@
 #include <esp_now.h>
 //#include "esp_sleep.h"
 #include "driver/rtc_io.h"
-//#include "driver/gpio.h"
 #include <Wire.h>
 #include <WiFi.h>
 
@@ -31,8 +30,8 @@ static DHT dht(DHTPIN, DHT22);  // Initialize DHT sensor for normal 16mhz Arduin
 #if defined(SIMULATOR)
     #define SLEEP_TIME  (     20 * 1000 * 1000L)
 #else
-    #define SLEEP_TIME  (     60 * 1000 * 1000L)
-  //#define SLEEP_TIME  (20 * 60 * 1000 * 1000L)
+    #define SLEEP_TIME  ( 2 * 60 * 1000 * 1000L)
+  //#define SLEEP_TIME  (     10 * 1000 * 1000L)
 #endif
 
 typedef struct {
@@ -45,7 +44,7 @@ static HardwareSerial*          debugger            = NULL;
 static uint8_t                  broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
 static uint8_t                  broadcastChannel    = 1;
 static RTC_DATA_ATTR uint8_t    reading_count       = 0;
-static RTC_DATA_ATTR reading    readings[20]        = {0};
+static RTC_DATA_ATTR reading    readings[10]        = {0};
 
 
 void print_wakeup_reason()
@@ -121,11 +120,6 @@ void setup()
 #endif
     //debugger = &Serial1;
 
-    if (reading_count % 2 == 1)
-    {
-        debugger = &Serial;
-    }
-
     if (debugger)
     {
         debugger->begin(115200);
@@ -141,6 +135,12 @@ void setup()
 
     uint16_t battery_value = 0;
 #if defined(BATT_VOLT_DIV)
+#if defined(FEATHER_EZSBC)
+    pinMode(GPIO_NUM_2, OUTPUT);
+    digitalWrite(GPIO_NUM_2, HIGH);
+    pinMode(GPIO_NUM_13, OUTPUT);
+    digitalWrite(GPIO_NUM_13, HIGH); // Turn of the blased red LED...!
+#endif
     battery_value = analogRead(35);
 #if defined(BATT_PROTECTION)
     if (battery_value < BATT_PROTECTION)
@@ -214,9 +214,6 @@ void setup()
     digitalWrite(POWPIN, LOW);
     pinMode(DHTPIN, OUTPUT);
     digitalWrite(DHTPIN, LOW);
-    //gpio_hold_en(DHTPIN);
-    //gpio_hold_en(POWPIN);
-    //gpio_deep_sleep_hold_en();
 #else
     readings[reading_count].temperature = NAN;
     readings[reading_count].humidity    = NAN;
@@ -224,12 +221,8 @@ void setup()
     reading_count++;
 #endif
 
-    //if (reading_count < (sizeof(readings) / sizeof(readings[0])))
-    //{
-    //    goto_sleep("caching");
-    //}
-    //goto_sleep("cheating...");
-    if (reading_count < 10)
+    auto temp_diff = abs(readings[0].temperature - readings[reading_count - 1].temperature);
+    if ((temp_diff < 1.0f) && (reading_count < (sizeof(readings) / sizeof(readings[0]))))
     {
         goto_sleep("caching");
     }
@@ -248,15 +241,13 @@ void setup()
         goto_sleep("Failed to add peer");
     }
 
-    //uint8_t mac[WL_MAC_ADDR_LENGTH];
-    //WiFi.macAddress(mac);
-    //memcpy(&payload[idx], mac, WL_MAC_ADDR_LENGTH);
-    //idx += WL_MAC_ADDR_LENGTH;
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
 
     static char payload[255];
     int idx = 0;
-    idx += sprintf(&payload[idx], "/sensor_now/data {\"batt\":%u,\"millis\":%lu,\"data\":[",
-            battery_value, millis());
+    idx += sprintf(&payload[idx], "/sensor_now/data {\"b\":%u,\"m\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"d\":[",
+            battery_value, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     for (uint8_t i = 0; i < reading_count; i++)
     {
         idx += sprintf(&payload[idx], "[%.2f,%.2f],",
