@@ -10,35 +10,34 @@
 
 
 #if defined(BME280_SENSOR)
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
+    #include <Adafruit_Sensor.h>
+    #include <Adafruit_BME280.h>
 
-#define POWPIN GPIO_NUM_14      // what pin is providing 3.3V power
-static Adafruit_BME280 bme;
-#endif
+    #define POWPIN GPIO_NUM_14      // what pin is providing 3.3V power
+    static Adafruit_BME280 bme;
+#elif defined(DHT22_SENSOR)
+    #include <DHT.h>
 
-#if defined(DHT22_SENSOR)
-#include <DHT.h>
-
-#define POWPIN GPIO_NUM_14      // what pin is providing 3.3V power
-#define GNDPIN GPIO_NUM_15      // what pin is providing 3.3V power
-#define DHTPIN GPIO_NUM_21      // what pin we're connected to
-static DHT dht(DHTPIN, DHT22);  // Initialize DHT sensor for normal 16mhz Arduino
+    #define POWPIN GPIO_NUM_14      // what pin is providing 3.3V power
+    #define GNDPIN GPIO_NUM_15      // what pin is providing 3.3V power
+    #define DHTPIN GPIO_NUM_21      // what pin we're connected to
+    static DHT dht(DHTPIN, DHT22);  // Initialize DHT sensor for normal 16mhz Arduino
 #endif
 
 
 #if defined(SIMULATOR)
-    #define SLEEP_TIME  (     20 * 1000 * 1000L)
+    #define SLEEP_TIME  (     10 * 1000 * 1000L)
 #else
     #define SLEEP_TIME  ( 2 * 60 * 1000 * 1000L)
-  //#define SLEEP_TIME  (     10 * 1000 * 1000L)
 #endif
+
 
 typedef struct {
     float temperature;
     float humidity;
     float pressure;
 } reading;
+
 
 static HardwareSerial*          debugger            = NULL;
 static uint8_t                  broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
@@ -255,7 +254,7 @@ void setup()
                 //readings[i].pressure,
                 readings[i].humidity);
     }
-    idx--;
+    idx--; // Ignore superfluous comma
     idx += sprintf(&payload[idx], "]}");
 
     if (debugger)
