@@ -240,13 +240,9 @@ void setup()
         goto_sleep("Failed to add peer");
     }
 
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-
-    static char payload[255];
+    static char payload[255]; // Max payload for ESP NOW
     int idx = 0;
-    idx += sprintf(&payload[idx], "/sensor_now/data {\"b\":%u,\"m\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"d\":[",
-            battery_value, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    idx += sprintf(&payload[idx], "{\"b\":%u,\"d\":[", battery_value);
     for (uint8_t i = 0; i < reading_count; i++)
     {
         idx += sprintf(&payload[idx], "[%.2f,%.2f],",
