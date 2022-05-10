@@ -26,10 +26,11 @@
 
 
 #if defined(SIMULATOR)
-    #define SLEEP_TIME  (     10 * 1000 * 1000L)
+    #define SLEEP_TIME_S    (     10UL)
 #else
-    #define SLEEP_TIME  ( 2 * 60 * 1000 * 1000L)
+    #define SLEEP_TIME_S    ( 5 * 60UL)
 #endif
+#define     SLEEP_TIME      ( SLEEP_TIME_S * 1000 * 1000UL)
 
 
 typedef struct {
@@ -42,9 +43,10 @@ typedef struct {
 static HardwareSerial*          debugger            = NULL;
 static uint8_t                  broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
 static uint8_t                  broadcastChannel    = 1;
-static RTC_DATA_ATTR boolean    very_first_reading  = true;
+static RTC_DATA_ATTR bool       very_first_reading  = true;
 static RTC_DATA_ATTR uint8_t    reading_count       = 0;
 static RTC_DATA_ATTR reading    readings[10]        = {0};
+static RTC_DATA_ATTR uint32_t   success_count       = 0;
 
 
 void print_wakeup_reason()
@@ -96,6 +98,7 @@ void goto_sleep(const char* reason)
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
+    success_count++;
     goto_sleep(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
@@ -145,6 +148,8 @@ void setup()
         debugger->println("");
         debugger->print("reading_count ");
         debugger->println(reading_count);
+        debugger->print("success_count ");
+        debugger->println(success_count);
         debugger->println("Starting");
     }
     else
@@ -248,15 +253,14 @@ void setup()
     auto temp_diff = abs(readings[0].temperature - readings[reading_count - 1].temperature);
     if ((! very_first_reading)
         &&
-        (
-            (temp_diff < 1.0f)
-            &&
-            (reading_count < (sizeof(readings) / sizeof(readings[0])))
-        ))
+        (temp_diff < 1.0f)
+        &&
+        (reading_count < (sizeof(readings) / sizeof(readings[0])))
+        )
     {
-        very_first_reading = false;
         goto_sleep("caching");
     }
+    very_first_reading = false;
 
     // Connect to gateway, send data
     WiFi.mode(WIFI_STA);
@@ -274,7 +278,7 @@ void setup()
 
     static char payload[255]; // Max payload for ESP NOW
     int idx = 0;
-    idx += sprintf(&payload[idx], "{\"b\":%u,\"d\":[", battery_value);
+    idx += sprintf(&payload[idx], "{\"b\":%u,\"s\":%lu,\"d\":[", battery_value, SLEEP_TIME_S);
     for (uint8_t i = 0; i < reading_count; i++)
     {
         idx += sprintf(&payload[idx], "[%.2f,%.2f],",
