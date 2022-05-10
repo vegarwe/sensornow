@@ -42,6 +42,7 @@ typedef struct {
 static HardwareSerial*          debugger            = NULL;
 static uint8_t                  broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
 static uint8_t                  broadcastChannel    = 1;
+static RTC_DATA_ATTR boolean    very_first_reading  = true;
 static RTC_DATA_ATTR uint8_t    reading_count       = 0;
 static RTC_DATA_ATTR reading    readings[10]        = {0};
 
@@ -111,6 +112,25 @@ void vTaskFunction(void * pvParameters)
     vTaskDelete(NULL);
 }
 
+#if defined(FEATHER_EZSBC)
+double EzSBCReadVoltage(byte pin)
+{
+    double reading = analogRead(pin); // Reference voltage is 3v3 so maximum reading is 3v3 = 4095 in range 0 to 4095
+    if (reading < 1 || reading > 4095)
+    {
+        return 0;
+    }
+
+    // Return the voltage after fixin the ADC non-linearity
+    return
+        - 0.000000000000016 * pow(reading, 4)
+        + 0.000000000118171 * pow(reading, 3)
+        - 0.000000301211691 * pow(reading, 2)
+        + 0.001109019271794 * reading
+        + 0.034143524634089;
+}
+#endif
+
 
 void setup()
 {
@@ -132,13 +152,18 @@ void setup()
         Serial.end();
     }
 
+#if defined(FEATHER_EZSBC)
+    pinMode(GPIO_NUM_13, OUTPUT);
+    digitalWrite(GPIO_NUM_13, HIGH);    // Turn off the blased red LED...!
+#endif
+
     uint16_t battery_value = 0;
 #if defined(BATT_VOLT_DIV)
 #if defined(FEATHER_EZSBC)
-    pinMode(GPIO_NUM_2, OUTPUT);
+    pinMode(GPIO_NUM_2, OUTPUT);        // Turn on voltage divider curcuit
     digitalWrite(GPIO_NUM_2, HIGH);
-    pinMode(GPIO_NUM_13, OUTPUT);
-    digitalWrite(GPIO_NUM_13, HIGH); // Turn of the blased red LED...!
+    delay(10);                          // Allow voltage to settle
+    //battery_value = EzSBCReadVoltage(35);
 #endif
     battery_value = analogRead(35);
 #if defined(BATT_PROTECTION)
@@ -221,8 +246,15 @@ void setup()
 #endif
 
     auto temp_diff = abs(readings[0].temperature - readings[reading_count - 1].temperature);
-    if ((temp_diff < 1.0f) && (reading_count < (sizeof(readings) / sizeof(readings[0]))))
+    if ((! very_first_reading)
+        &&
+        (
+            (temp_diff < 1.0f)
+            &&
+            (reading_count < (sizeof(readings) / sizeof(readings[0])))
+        ))
     {
+        very_first_reading = false;
         goto_sleep("caching");
     }
 
