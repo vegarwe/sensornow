@@ -47,6 +47,7 @@ static RTC_DATA_ATTR bool       very_first_reading  = true;
 static RTC_DATA_ATTR uint8_t    reading_count       = 0;
 static RTC_DATA_ATTR reading    readings[10]        = {0};
 static RTC_DATA_ATTR uint32_t   success_count       = 0;
+static RTC_DATA_ATTR uint32_t   battery_value_sum   = 0;
 
 
 void print_wakeup_reason()
@@ -75,13 +76,15 @@ void print_wakeup_reason()
 
 void goto_sleep(const char* reason)
 {
-    if (debugger)
-    {
-        debugger->print(reason);
-        debugger->print(" ");
-        debugger->println(millis());
-        debugger->flush();
-    }
+    Serial.begin(115200); // TODO: Test power consumption with Serial on and off!
+    Serial.print(reason);
+    Serial.print(" millis: ");
+    Serial.print(  millis());
+    Serial.print(" reading_count: ");
+    Serial.print(  reading_count);
+    Serial.print(" success_count: ");
+    Serial.println(success_count);
+    Serial.flush();
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
@@ -145,12 +148,11 @@ void setup()
     if (debugger)
     {
         debugger->begin(115200);
-        debugger->println("");
-        debugger->print("reading_count ");
+        debugger->println();
+        debugger->print(" reading_count ");
         debugger->println(reading_count);
-        debugger->print("success_count ");
+        debugger->print(" success_count ");
         debugger->println(success_count);
-        debugger->println("Starting");
     }
     else
     {
@@ -180,6 +182,8 @@ void setup()
     }
 #endif
 #endif
+
+    battery_value_sum += battery_value;
 
     if (debugger && battery_value != 0)
     {
@@ -278,7 +282,7 @@ void setup()
 
     static char payload[255]; // Max payload for ESP NOW
     int idx = 0;
-    idx += sprintf(&payload[idx], "{\"b\":%u,\"s\":%lu,\"d\":[", battery_value, SLEEP_TIME_S);
+    idx += sprintf(&payload[idx], "{\"b\":%u,\"s\":%lu,\"d\":[", battery_value_sum / reading_count, SLEEP_TIME_S);
     for (uint8_t i = 0; i < reading_count; i++)
     {
         idx += sprintf(&payload[idx], "[%.2f,%.2f],",
@@ -303,6 +307,7 @@ void setup()
     }
 
     reading_count = 0;
+    battery_value_sum = 0;
 }
 
 void loop()
