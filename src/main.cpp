@@ -1,7 +1,7 @@
 #include <Arduino.h>
 //#include <adc.h>
 //#include <bt/esp_bt.h>
-//#include <esp_wifi.h>
+#include <esp_wifi.h>
 #include <esp_now.h>
 //#include "esp_sleep.h"
 #include "driver/rtc_io.h"
@@ -268,6 +268,8 @@ void setup()
 
     // Connect to gateway, send data
     WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    ESP_ERROR_CHECK(esp_wifi_set_channel(broadcastChannel, WIFI_SECOND_CHAN_NONE));
     esp_now_init();
     esp_now_register_send_cb(OnDataSent);
 
