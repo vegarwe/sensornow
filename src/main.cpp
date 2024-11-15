@@ -48,7 +48,7 @@ static uint8_t                  broadcastChannel    = 10; // Restart AMS display
 static RTC_DATA_ATTR bool       very_first_reading  = true;
 static RTC_DATA_ATTR uint8_t    reading_count       = 0;
 static RTC_DATA_ATTR reading    readings[10]        = {0};
-static RTC_DATA_ATTR uint32_t   success_count       = 0;
+static RTC_DATA_ATTR uint32_t   send_count          = 0;
 static RTC_DATA_ATTR uint32_t   battery_value_sum   = 0;
 
 
@@ -79,13 +79,7 @@ void print_wakeup_reason()
 void goto_sleep(const char* reason)
 {
     Serial.begin(115200); // TODO: Test power consumption with Serial on and off!
-    Serial.print(reason);
-    Serial.print(" millis: ");
-    Serial.print(  millis());
-    Serial.print(" reading_count: ");
-    Serial.print(  reading_count);
-    Serial.print(" success_count: ");
-    Serial.println(success_count);
+    Serial.printf("goto_sleep millis:%5u reading_count%4u send_count%4u %s\n", millis(), reading_count, send_count, reason);
     Serial.flush();
 
     WiFi.disconnect(true);
@@ -103,7 +97,7 @@ void goto_sleep(const char* reason)
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
-    success_count++;
+    send_count++;
     goto_sleep(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
@@ -151,10 +145,7 @@ void setup()
     {
         debugger->begin(115200);
         debugger->println();
-        debugger->print(" reading_count ");
-        debugger->println(reading_count);
-        debugger->print(" success_count ");
-        debugger->println(success_count);
+        debugger->println("esp_now sensor\n");
     }
     else
     {
