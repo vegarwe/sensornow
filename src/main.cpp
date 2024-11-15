@@ -26,7 +26,7 @@
 
 
 #if defined(SIMULATOR)
-    #define SLEEP_TIME_S    (     10UL)
+    #define SLEEP_TIME_S    (     20UL)
 #else
     #define SLEEP_TIME_S    ( 5 * 60UL)
 #endif
@@ -42,7 +42,9 @@ typedef struct {
 
 static HardwareSerial*          debugger            = NULL;
 static uint8_t                  broadcastAddress[]  = {0x24, 0x6F, 0x28, 0x60, 0x37, 0x29}; // AMS Display
-static uint8_t                  broadcastChannel    = 1;
+static uint8_t                  broadcastChannel    = 10; // Restart AMS display, look at the serial output!
+//atic uint8_t                  broadcastAddress[]  = {0x30, 0xAE, 0xA4, 0x1A, 0x68, 0xC1}; // Feather ESP Now GW
+//atic uint8_t                  broadcastChannel    = 6;
 static RTC_DATA_ATTR bool       very_first_reading  = true;
 static RTC_DATA_ATTR uint8_t    reading_count       = 0;
 static RTC_DATA_ATTR reading    readings[10]        = {0};
@@ -248,7 +250,7 @@ void setup()
     pinMode(DHTPIN, OUTPUT);
     digitalWrite(DHTPIN, LOW);
 #else
-    readings[reading_count].temperature = NAN;
+    readings[reading_count].temperature = millis();
     readings[reading_count].humidity    = NAN;
     readings[reading_count].pressure    = NAN;
     reading_count++;
